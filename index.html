@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Website Scraper UI</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 900px;
+      margin: 40px auto;
+      padding: 0 20px;
+      background: #fafafa;
+      color: #333;
+    }
+
+    h1 {
+      text-align: center;
+      margin-bottom: 24px;
+    }
+
+    #scrapeForm {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+      margin-bottom: 24px;
+    }
+
+    #urlInput {
+      width: 70%;
+      padding: 10px;
+      font-size: 16px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+
+    #scrapeButton {
+      padding: 10px 20px;
+      font-size: 16px;
+      cursor: pointer;
+      background-color: #0078d7;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      transition: background-color 0.2s ease;
+    }
+    #scrapeButton:hover {
+      background-color: #005ea3;
+    }
+
+    #loading {
+      text-align: center;
+      display: none;
+      margin-bottom: 20px;
+      font-weight: bold;
+      color: #555;
+    }
+
+    #summaryContainer {
+      background-color: #fff;
+      padding: 16px 20px;
+      border-radius: 6px;
+      box-shadow: 0 0 8px rgba(0,0,0,0.1);
+      margin-bottom: 30px;
+      font-size: 16px;
+      line-height: 1.5;
+    }
+    #summaryContainer ul {
+      list-style-type: none;
+      padding-left: 0;
+    }
+    #summaryContainer li {
+      padding: 4px 0;
+    }
+
+    #tableContainer table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 40px;
+      background-color: #fff;
+      box-shadow: 0 0 8px rgba(0,0,0,0.05);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    #tableContainer th,
+    #tableContainer td {
+      border: 1px solid #ddd;
+      padding: 12px 15px;
+      text-align: left;
+      vertical-align: middle;
+    }
+    #tableContainer th {
+      background-color: #0078d7;
+      color: white;
+      font-weight: 600;
+      user-select: none;
+    }
+    #tableContainer tr:nth-child(even) {
+      background-color: #f9f9f9;
+    }
+    #tableContainer tr:hover {
+      background-color: #e1f0ff;
+    }
+
+    p {
+      font-style: italic;
+      color: #666;
+    }
+  </style>
+</head>
+<body>
+  <h1>Website Scraper</h1>
+  <div id="scrapeForm">
+    <input type="text" id="urlInput" placeholder="Enter website URL to scrape..." />
+    <button id="scrapeButton">Scrape</button>
+  </div>
+  <div id="loading">Loading... Please wait.</div>
+
+  <div id="summaryContainer"></div>
+  <div id="tableContainer"></div>
+
+  <script>
+    document.getElementById("scrapeButton").addEventListener("click", scrapeWebsite);
+
+    function scrapeWebsite() {
+      const url = document.getElementById("urlInput").value.trim();
+      const loading = document.getElementById("loading");
+      const summaryContainer = document.getElementById("summaryContainer");
+      const tableContainer = document.getElementById("tableContainer");
+
+      if (!url) {
+        alert("Please enter a URL.");
+        return;
+      }
+
+      loading.style.display = "block";
+      summaryContainer.innerHTML = "";
+      tableContainer.innerHTML = "";
+
+      fetch("http://localhost:5000/scrape", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
+      })
+        .then((response) => response.json())
+        .then((data) => {
+          loading.style.display = "none";
+
+          if (data.error) {
+            alert("Error: " + data.error);
+            return;
+          }
+
+          renderSummary(data);
+
+          if (Array.isArray(data.tables) && data.tables.length > 0) {
+            const firstTable = data.tables[0];
+            if (
+              firstTable.headers &&
+              Array.isArray(firstTable.headers) &&
+              firstTable.rows &&
+              Array.isArray(firstTable.rows)
+            ) {
+              renderTableWithHeadersRows(firstTable);
+            } else if (Array.isArray(firstTable) && firstTable.length > 0 && typeof firstTable[0] === "object") {
+              renderTableFromObjects(firstTable);
+            } else {
+              tableContainer.innerHTML = "<p>Table format not recognized.</p>";
+            }
+          } else {
+            tableContainer.innerHTML = "<p>No table data found.</p>";
+          }
+        })
+        .catch((error) => {
+          loading.style.display = "none";
+          alert("Failed to scrape site.");
+          console.error(error);
+        });
+    }
+
+    function renderSummary(data) {
+      const container = document.getElementById("summaryContainer");
+      let totalLinks = 0;
+      if (typeof data.link_count === "number") {
+        totalLinks = data.link_count;
+      } else if (typeof data.link_counts === "object" && data.link_counts !== null) {
+        totalLinks = Object.values(data.link_counts).reduce((a, b) => a + b, 0);
+      }
+      container.innerHTML = `
+        <ul>
+          <li><strong>Word Count:</strong> ${data.word_count || 0}</li>
+          <li><strong>Paragraph Count:</strong> ${data.paragraph_count || 0}</li>
+          <li><strong>Heading Count (h1-h6):</strong> ${data.heading_count || 0}</li>
+          <li><strong>Link Count:</strong> ${totalLinks}</li>
+          <li><strong>Image Count:</strong> ${data.image_count || 0}</li>
+        </ul>
+      `;
+    }
+
+    function renderTableWithHeadersRows(tableData) {
+      const container = document.getElementById("tableContainer");
+      container.innerHTML = "";
+
+      const table = document.createElement("table");
+      table.style.borderCollapse = "collapse";
+      table.style.width = "100%";
+
+      const thead = document.createElement("thead");
+      const headRow = document.createElement("tr");
+      tableData.headers.forEach((headerText) => {
+        const th = document.createElement("th");
+        th.textContent = headerText;
+        th.style.border = "1px solid #ccc";
+        th.style.padding = "8px";
+        th.style.backgroundColor = "#f2f2f2";
+        th.style.textAlign = "left";
+        headRow.appendChild(th);
+      });
+      thead.appendChild(headRow);
+      table.appendChild(thead);
+
+      const tbody = document.createElement("tbody");
+      tableData.rows.forEach((row) => {
+        const tr = document.createElement("tr");
+        if (Array.isArray(row)) {
+          row.forEach((cell) => {
+            const td = document.createElement("td");
+            td.textContent = cell;
+            td.style.border = "1px solid #ccc";
+            td.style.padding = "8px";
+            tr.appendChild(td);
+          });
+        } else if (typeof row === "object" && row !== null) {
+          tableData.headers.forEach((h) => {
+            const td = document.createElement("td");
+            td.textContent = row[h] || "";
+            td.style.border = "1px solid #ccc";
+            td.style.padding = "8px";
+            tr.appendChild(td);
+          });
+        }
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+
+      container.appendChild(table);
+    }
+
+    function renderTableFromObjects(dataArray) {
+      const container = document.getElementById("tableContainer");
+      container.innerHTML = "";
+
+      const headersSet = new Set();
+      dataArray.forEach((obj) => {
+        Object.keys(obj).forEach((key) => headersSet.add(key));
+      });
+      const headers = Array.from(headersSet);
+
+      const table = document.createElement("table");
+      table.style.borderCollapse = "collapse";
+      table.style.width = "100%";
+
+      const thead = document.createElement("thead");
+      const headRow = document.createElement("tr");
+      headers.forEach((headerText) => {
+        const th = document.createElement("th");
+        th.textContent = headerText;
+        th.style.border = "1px solid #ccc";
+        th.style.padding = "8px";
+        th.style.backgroundColor = "#f2f2f2";
+        th.style.textAlign = "left";
+        headRow.appendChild(th);
+      });
+      thead.appendChild(headRow);
+      table.appendChild(thead);
+
+      const tbody = document.createElement("tbody");
+      dataArray.forEach((rowObj) => {
+        const tr = document.createElement("tr");
+        headers.forEach((h) => {
+          const td = document.createElement("td");
+          td.textContent = rowObj[h] || "";
+          td.style.border = "1px solid #ccc";
+          td.style.padding = "8px";
+          tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+
+      container.appendChild(table);
+    }
+  </script>
+</body>
+</html>
